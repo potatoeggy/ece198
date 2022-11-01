@@ -3,14 +3,14 @@
 #![no_main]
 #![no_std]
 
-use core::{cell::RefCell, pin::Pin};
+use core::cell::RefCell;
 
-use cortex_m::{interrupt::Mutex, prelude::_embedded_hal_digital_OutputPin};
+use cortex_m::interrupt::Mutex;
 use hal::{
     gpio::{self, Output, PushPull},
-    timer::{CounterUs, SysDelay},
+    timer::CounterUs,
 };
-use libm::{sqrt, sqrtf};
+use libm::sqrt;
 // Halt on panic
 use panic_halt as _; // panic handler
 
@@ -265,7 +265,7 @@ fn main() -> ! {
 }
 
 fn calc_mean(data: &[f64]) -> f64 {
-    let total = 0.0;
+    let mut total = 0.0;
     for &val in data {
         total += val;
     }
@@ -274,25 +274,24 @@ fn calc_mean(data: &[f64]) -> f64 {
 
 fn calc_stdev(data: &[f64]) -> f64 {
     let len = data.len() as f64;
-    let total = 0.0;
+    let mut total = 0.0;
     for &val in data {
         total += val;
     }
 
     let mean = total / len;
 
-    let sum2 = 0.0;
+    let mut sum = 0.0;
     for &val in data {
-        sum2 += (val - mean) * (val - mean);
+        sum += (val - mean) * (val - mean);
     }
 
-    let variance = sum2 / len;
+    let variance = sum / len;
     sqrt(variance)
 }
 
-fn calc_median(data: &[f64]) -> f64 {
-    let mut sorted = data.clone();
-    bubble_sort(&mut sorted);
+fn calc_median(data: &mut [f64]) -> f64 {
+    bubble_sort(data);
 
     // TODO: finish
     0.0
