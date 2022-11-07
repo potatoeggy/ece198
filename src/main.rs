@@ -10,7 +10,7 @@ use hal::{
     gpio::{self, Output, PushPull},
     timer::CounterUs,
 };
-use libm::sqrt;
+use libm::{pow, powf, sqrt};
 // Halt on panic
 use panic_halt as _; // panic handler
 
@@ -317,4 +317,8 @@ fn bubble_sort(data: &mut [f64]) {
 
         len = new_len;
     }
+}
+
+fn ph_to_hconc(ph: f64) -> f64 {
+    pow(10.0, -ph)
 }
