@@ -8,13 +8,11 @@ edition = "2021"
 [dependencies]
 cortex-m = "^0.7.6"
 cortex-m-rt = "^0.7.1"
-embedded-hal = "^0.2.4"
 panic-halt = "^0.2.0"
 libm = "0.2.5"
-
-[dependencies.stm32f4]
-features = ["stm32f401", "rt"]
-version = "^0.15.1"
+embedded-hal = "0.2.7"
+hd44780-driver = "0.4.0"
+keypad2 = "0.1.1"
 
 [dependencies.stm32f4xx-hal]
 features = ["stm32f401", "rt"]

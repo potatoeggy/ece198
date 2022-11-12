@@ -1,3 +1,97 @@
+#![no_std]
+#![no_main]
+
+extern crate panic_halt;
+
+use cortex_m_rt::entry;
+use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use keypad2::Keypad;
+use stm32f4xx_hal::{pac, prelude::*};
+
+// Connections:
+// GND: GND
+// VDD: 5V
+// V0:  10k poti between 5V and GND
+// RS:  PB7
+// RW:  GND
+// E:   PB8
+// D4-D7: PB6-PB3
+// A:   5V
+// K:   GND
+
+// Keypad connections:
+// from left to right:
+// D0
+// A5
+// A4
+// A3
+// A2
+// A1
+// A0
+
+#[entry]
+fn main() -> ! {
+    let dp = pac::Peripherals::take().unwrap();
+
+    let rcc = dp.RCC.constrain();
+    let gpiob = dp.GPIOB.split();
+    let gpioa = dp.GPIOA.split();
+    let gpioc = dp.GPIOC.split();
+
+    let clocks = rcc.cfgr.freeze();
+    let mut delay = dp.TIM1.delay_us(&clocks);
+
+    let rows = (
+        gpiob.pb0.into_pull_up_input(),
+        gpioa.pa4.into_pull_up_input(),
+        gpioa.pa0.into_pull_up_input(),
+        gpioa.pa1.into_pull_up_input(),
+    );
+    let cols = (
+        gpioa.pa3.into_open_drain_output(),
+        gpioc.pc0.into_open_drain_output(),
+        gpioc.pc1.into_open_drain_output(),
+    );
+
+    let mut keypad = Keypad::new(rows, cols);
+
+    let rs = gpioa.pa8.into_push_pull_output();
+    let en = gpiob.pb10.into_push_pull_output();
+    let d4 = gpiob.pb5.into_push_pull_output();
+    let d5 = gpiob.pb4.into_push_pull_output();
+    let d6 = gpiob.pb3.into_push_pull_output();
+    let d7 = gpioa.pa10.into_push_pull_output();
+
+    let mut lcd = HD44780::new_4bit(rs, en, d4, d5, d6, d7, &mut delay).unwrap();
+    lcd.reset(&mut delay).unwrap();
+    lcd.clear(&mut delay).unwrap();
+    lcd.set_display_mode(
+        DisplayMode {
+            display: Display::On,
+            cursor_visibility: Cursor::Visible,
+            cursor_blink: CursorBlink::On,
+        },
+        &mut delay,
+    )
+    .unwrap();
+    lcd.write_str("Booting...", &mut delay).unwrap();
+    lcd.set_cursor_pos(40, &mut delay).unwrap();
+    lcd.write_str("Num2", &mut delay).unwrap();
+
+    let mut led = gpioa.pa5.into_push_pull_output();
+    #[allow(clippy::empty_loop)]
+    loop {
+        delay.delay_ms(500_u16);
+        let key = keypad.read_char(&mut delay);
+        led.set_high();
+        if key != ' ' {
+            lcd.reset(&mut delay).unwrap();
+            lcd.write_char(key, &mut delay).unwrap();
+        }
+    }
+}
+
+/*
 #![deny(unsafe_code)]
 #![allow(clippy::empty_loop)]
 #![no_main]
@@ -43,221 +137,19 @@ fn main() -> ! {
         // Create a delay abstraction based on SysTick
         let mut delay = cp.SYST.delay(&clocks);
 
+        /*
         let buzzer = gpioa.pa9.into_alternate();
         let mut buzz_pwm = dp.TIM1.pwm_hz(buzzer, 2000.Hz(), &clocks);
 
         let max_duty = buzz_pwm.get_max_duty();
         buzz_pwm.set_duty(Channel::C2, max_duty / 2);
-
-        let tones = [
-            ("e0", 165.Hz()),
-            ("f0", 175.Hz()),
-            ("f0+", 185.Hz()),
-            ("g0", 196.Hz()),
-            ("g0+", 208.Hz()),
-            ("a0", 220.Hz()),
-            ("a0+", 233.Hz()),
-            ("b0", 245.Hz()),
-            ("c", 261.Hz()),
-            ("c+", 277.Hz()),
-            ("d", 294.Hz()),
-            ("d+", 311.Hz()),
-            ("e", 329.Hz()),
-            ("f", 349.Hz()),
-            ("f+", 370.Hz()),
-            ("g", 392.Hz()),
-            ("g+", 415.Hz()),
-            ("a", 440.Hz()),
-            ("a+", 466.Hz()),
-            ("b", 493.Hz()),
-            ("c2", 523.Hz()),
-            ("d2", 594.Hz()),
-        ];
-
-        let twinkle_twinkle = [
-            ("c", 1),
-            ("c", 1),
-            ("g", 1),
-            ("g", 1),
-            ("a", 1),
-            ("a", 1),
-            ("g", 2),
-            ("f", 1),
-            ("f", 1),
-            ("e", 1),
-            ("e", 1),
-            ("d", 1),
-            ("d", 1),
-            ("c", 2),
-            (" ", 4),
-        ];
-
-        let scale = [
-            ("c", 1),
-            ("c+", 1),
-            ("d", 1),
-            ("d+", 1),
-            ("e", 1),
-            ("f", 1),
-            ("f+", 1),
-            ("g", 1),
-            ("g+", 1),
-            ("a+", 1),
-            ("a", 1),
-            ("b", 1),
-            (" ", 4),
-        ];
-
-        let megalovania = [
-            ("d", 1),
-            ("d", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 2
-            ("c", 1),
-            ("c", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 3
-            ("b0", 1),
-            ("b0", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 3
-            ("a0+", 1),
-            ("a0+", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // main song
-            ("f", 2),
-            ("f", 1),
-            ("f", 1),
-            (" ", 1),
-            ("f", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            (" ", 1),
-            ("d", 5),
-            // bar 2
-            ("f", 2),
-            ("f", 1),
-            ("f", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("g+", 3),
-            ("g", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            (" ", 10000),
-        ];
-
-        let mario = [
-            ("e", 2),
-            ("e", 2),
-            (" ", 2),
-            ("e", 2),
-            (" ", 2),
-            ("c", 2),
-            ("e", 4),
-            ("g", 4),
-            (" ", 4),
-            ("g0", 4),
-            (" ", 4),
-            // main part
-            ("c", 4),
-            (" ", 2),
-            ("g0", 4),
-            (" ", 2),
-            ("e0", 4),
-            (" ", 2),
-            ("a0", 4),
-            ("b0", 4),
-            ("a0+", 2),
-            ("a0", 4),
-            ("g0", 3),
-            ("e", 3),
-            ("g", 3),
-            ("a", 4),
-            ("f", 2),
-            ("g", 2),
-            (" ", 2),
-            ("e", 4),
-            ("c", 2),
-            ("d", 2),
-            ("b0", 4),
-            (" ", 10000),
-        ];
-
-        let tune = mario;
-
-        let tempo = 60_u32;
+        */
 
         loop {
-            // 1. Obtain a note in the tune
-            for note in tune {
-                // 2. Retrieve the freqeuncy and beat associated with the note
-                for tone in tones {
-                    // 2.1 Find a note match in the tones array and update frequency and beat variables accordingly
-                    if tone.0 == note.0 {
-                        // 3. Play the note for the desired duration (beats*tempo)
-                        // 3.1 Adjust period of the PWM output to match the new frequency
-                        buzz_pwm.set_period(tone.1);
-                        // 3.2 Enable the channel to generate desired PWM
-                        buzz_pwm.enable(Channel::C2);
-                        // 3.3 Keep the output on for as long as required
-                        delay.delay_ms(note.1 * tempo);
-                    } else if note.0 == " " {
-                        // 2.2 if " " tone is found disable output for one beat
-                        buzz_pwm.disable(Channel::C2);
-                        delay.delay_ms(note.1 * tempo / (tempo));
-                    }
-                }
-                // 4. Silence for half a beat between notes
-                // 4.1 Disable the PWM output (silence)
-                buzz_pwm.disable(Channel::C2);
-                // 4.2 Keep the output off for half a beat between notes
-                delay.delay_ms(tempo / 2);
-                // 5. Go back to 1.
-            }
+            led.set_high();
+            delay.delay_ms(1000_u32);
+            led.set_low();
+            delay.delay_ms(1000_u32);
         }
     }
 
@@ -293,12 +185,12 @@ fn calc_stdev(data: &[f64]) -> f64 {
 fn calc_median(data: &mut [f64]) -> f64 {
     bubble_sort(data);
 
-    // TODO: finish
+// TODO: finish
     0.0
 }
 
 fn bubble_sort(data: &mut [f64]) {
-    // no builtin sorting in rust without std
+// no builtin sorting in rust without std
     let mut new_len: usize;
     let mut len = data.len();
 
@@ -318,3 +210,4 @@ fn bubble_sort(data: &mut [f64]) {
         len = new_len;
     }
 }
+*/
