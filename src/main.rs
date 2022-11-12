@@ -4,9 +4,19 @@
 extern crate panic_halt;
 
 use cortex_m_rt::entry;
-use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use embedded_hal::digital::v2::InputPin;
+use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
 use keypad2::Keypad;
-use stm32f4xx_hal::{pac, prelude::*};
+use stm32f4xx_hal::{
+    gpio::{
+        gpioa::{PA10, PA2, PA3},
+        gpiob::{PB10, PB3, PB4, PB5},
+        Input, OpenDrain, Output, Pin, Pull,
+    },
+    pac::{self, TIM1},
+    prelude::*,
+    timer::Delay,
+};
 
 // Connections:
 // GND: GND
@@ -24,13 +34,39 @@ use stm32f4xx_hal::{pac, prelude::*};
 
 // Keypad connections:
 // from left to right:
-// D0
-// A5
-// A4
-// A3
-// A2
-// A1
-// A0
+// D0 / PA3 (C2)
+// D1 / PA2 (R1)
+// D2 / PA10 (C1)
+// D3 / PB3 (R4)
+// D4 / PB5 (C3)
+// D5 / PB4 (R3)
+// discon / D6 / PB10 (R2)
+
+// max chars in display
+const MAX_DISPLAY_CHARS: usize = 16;
+
+type GenericKeypad = Keypad<
+    Pin<'A', 2>,
+    Pin<'B', 10>,
+    Pin<'B', 4>,
+    Pin<'B', 3>,
+    Pin<'A', 10, Output<OpenDrain>>,
+    Pin<'A', 3, Output<OpenDrain>>,
+    Pin<'B', 5, Output<OpenDrain>>,
+>;
+
+type GenericDelay = Delay<TIM1, 1000000>;
+
+type GenericDisplay = HD44780<
+    FourBitBus<
+        Pin<'C', 7, Output>,
+        Pin<'B', 6, Output>,
+        Pin<'A', 7, Output>,
+        Pin<'A', 6, Output>,
+        Pin<'A', 8, Output>,
+        Pin<'B', 0, Output>,
+    >,
+>;
 
 #[entry]
 fn main() -> ! {
@@ -44,16 +80,18 @@ fn main() -> ! {
     let clocks = rcc.cfgr.freeze();
     let mut delay = dp.TIM1.delay_us(&clocks);
 
+    let dummy_pin = gpiob.pb0.into_push_pull_output();
+
     let rows = (
-        gpiob.pb0.into_pull_up_input(),
-        gpioa.pa4.into_pull_up_input(),
-        gpioa.pa0.into_pull_up_input(),
-        gpioa.pa1.into_pull_up_input(),
+        gpioa.pa2.into_pull_up_input(),
+        gpiob.pb10.into_pull_up_input(),
+        gpiob.pb4.into_pull_up_input(),
+        gpiob.pb3.into_pull_up_input(),
     );
     let cols = (
+        gpioa.pa10.into_open_drain_output(),
         gpioa.pa3.into_open_drain_output(),
-        gpioc.pc0.into_open_drain_output(),
-        gpioc.pc1.into_open_drain_output(),
+        gpiob.pb5.into_open_drain_output(),
     );
 
     let mut keypad = Keypad::new(rows, cols);
@@ -63,7 +101,7 @@ fn main() -> ! {
     let d4 = gpioa.pa7.into_push_pull_output();
     let d5 = gpioa.pa6.into_push_pull_output();
     let d6 = gpioa.pa8.into_push_pull_output();
-    let d7 = gpiob.pb10.into_push_pull_output();
+    let d7 = dummy_pin;
 
     let mut lcd = HD44780::new_4bit(rs, en, d4, d5, d6, d7, &mut delay).unwrap();
     lcd.reset(&mut delay).unwrap();
@@ -85,132 +123,95 @@ fn main() -> ! {
     #[allow(clippy::empty_loop)]
     loop {
         delay.delay_ms(500_u16);
+
         let key = keypad.read_char(&mut delay);
-        led.set_high();
+
         if key != ' ' {
-            lcd.reset(&mut delay).unwrap();
-            lcd.write_char(key, &mut delay).unwrap();
-        }
-    }
-}
+            if key == '*' || key == '#' {
+                continue;
+            }
+            //lcd.reset(&mut delay).unwrap();
+            //lcd.write_char(key, &mut delay).unwrap();
 
-/*
-#![deny(unsafe_code)]
-#![allow(clippy::empty_loop)]
-#![no_main]
-#![no_std]
-
-use core::cell::RefCell;
-
-use cortex_m::interrupt::Mutex;
-use hal::{
-    gpio::{self, Output, PushPull},
-    timer::CounterUs,
-};
-use libm::sqrt;
-// Halt on panic
-use panic_halt as _; // panic handler
-
-use cortex_m_rt::entry;
-use stm32f4::stm32f401::TIM2;
-use stm32f4xx_hal as hal;
-
-use crate::hal::{pac, prelude::*, timer::Channel};
-
-type LedPin = gpio::PA5<Output<PushPull>>;
-
-static G_LED: Mutex<RefCell<Option<LedPin>>> = Mutex::new(RefCell::new(None));
-static G_TIM: Mutex<RefCell<Option<CounterUs<TIM2>>>> = Mutex::new(RefCell::new(None));
-
-#[entry]
-fn main() -> ! {
-    if let (Some(dp), Some(cp)) = (
-        pac::Peripherals::take(),
-        cortex_m::peripheral::Peripherals::take(),
-    ) {
-        // Set up the LED. On the Nucleo-446RE it"s connected to pin PA5.
-        let gpioa = dp.GPIOA.split();
-        let gpiod = dp.GPIOD.split();
-        let mut led = gpioa.pa5.into_push_pull_output();
-
-        // Set up the system clock. We want to run at 48MHz for this one.
-        let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.MHz()).freeze();
-
-        // Create a delay abstraction based on SysTick
-        let mut delay = cp.SYST.delay(&clocks);
-
-        /*
-        let buzzer = gpioa.pa9.into_alternate();
-        let mut buzz_pwm = dp.TIM1.pwm_hz(buzzer, 2000.Hz(), &clocks);
-
-        let max_duty = buzz_pwm.get_max_duty();
-        buzz_pwm.set_duty(Channel::C2, max_duty / 2);
-        */
-
-        loop {
-            led.set_high();
-            delay.delay_ms(1000_u32);
-            led.set_low();
-            delay.delay_ms(1000_u32);
-        }
-    }
-
-    loop {}
-}
-
-fn calc_mean(data: &[f64]) -> f64 {
-    let mut total = 0.0;
-    for &val in data {
-        total += val;
-    }
-    total / (data.len() as f64)
-}
-
-fn calc_stdev(data: &[f64]) -> f64 {
-    let len = data.len() as f64;
-    let mut total = 0.0;
-    for &val in data {
-        total += val;
-    }
-
-    let mean = total / len;
-
-    let mut sum = 0.0;
-    for &val in data {
-        sum += (val - mean) * (val - mean);
-    }
-
-    let variance = sum / len;
-    sqrt(variance)
-}
-
-fn calc_median(data: &mut [f64]) -> f64 {
-    bubble_sort(data);
-
-// TODO: finish
-    0.0
-}
-
-fn bubble_sort(data: &mut [f64]) {
-// no builtin sorting in rust without std
-    let mut new_len: usize;
-    let mut len = data.len();
-
-    loop {
-        new_len = 0;
-        for i in 1..len {
-            if data[i - 1] > data[i] {
-                data.swap(i - 1, i);
-                new_len = i;
+            let a = key.to_digit(10).unwrap();
+            for i in 0..a {
+                led.set_high();
+                delay.delay_ms(300u32);
+                led.set_low();
+                delay.delay_ms(300u32);
             }
         }
 
-        if new_len == 0 {
-            break;
-        }
-
-        len = new_len;
+        delay.delay_ms(1u16);
     }
 }
-*/
+
+fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
+    delay.delay_ms(1_u16);
+
+    loop {
+        let key = keypad.read_char(delay);
+
+        if key != ' ' {
+            if key == '#' {
+                // treat as enter
+                return ' ';
+            } else if key == '*' {
+                return '.';
+            } else {
+                // number
+                return key;
+            }
+        }
+        delay.delay_ms(10u16);
+    }
+}
+
+fn read_line(string: &mut [char], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
+    // TODO: display text on screen on input
+    delay.delay_ms(1_u16);
+    let mut index = 0;
+    loop {
+        let key = keypad.read_char(delay);
+
+        if key != ' ' {
+            let mut char = '.';
+            if key == '#' {
+                // treat as enter
+                break;
+            } else if key == '*' {
+                // decimal point
+                char = '.';
+            } else {
+                // number
+                char = key;
+            }
+
+            // make sure we don't overflow display
+            if index != MAX_DISPLAY_CHARS {
+                string[index] = char;
+                index += 1;
+            }
+        }
+        delay.delay_ms(10u16);
+    }
+    for i in index..MAX_DISPLAY_CHARS {
+        string[i] = '\0';
+    }
+}
+
+fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+    delay.delay_ms(10u16);
+    lcd.reset(delay).unwrap();
+    lcd.write_str(first, delay).unwrap();
+    lcd.set_cursor_pos(40u8, delay).unwrap();
+    lcd.write_str(second, delay).unwrap();
+}
+
+fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+    delay.delay_ms(10u16);
+
+    let pos = if second_line { 40u8 } else { 0u8 };
+    lcd.set_cursor_pos(pos, delay).unwrap();
+    lcd.write_str(string, delay).unwrap(); // hope it also clears the rest of the line
+}

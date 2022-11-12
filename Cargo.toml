@@ -13,6 +13,8 @@ libm = "0.2.5"
 embedded-hal = "0.2.7"
 hd44780-driver = "0.4.0"
 keypad2 = "0.1.1"
+keypad = "0.2.2"
+no-std-compat = {version="0.4.1", features=["alloc"]}
 
 [dependencies.stm32f4xx-hal]
 features = ["stm32f401", "rt"]
