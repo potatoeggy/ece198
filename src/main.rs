@@ -12,10 +12,13 @@ use stm32f4xx_hal::{pac, prelude::*};
 // GND: GND
 // VDD: 5V
 // V0:  10k poti between 5V and GND
-// RS:  PB7
+// RS:  D9 / PC7
 // RW:  GND
-// E:   PB8
-// D4-D7: PB6-PB3
+// E:   D10 / PB6
+// D4:  D11 / PA7
+// D5:  D12 / PA6
+// D6:  D7 / PA8
+// D7:  D6 / PB10
 // A:   5V
 // K:   GND
 
@@ -55,12 +58,12 @@ fn main() -> ! {
 
     let mut keypad = Keypad::new(rows, cols);
 
-    let rs = gpioa.pa8.into_push_pull_output();
-    let en = gpiob.pb10.into_push_pull_output();
-    let d4 = gpiob.pb5.into_push_pull_output();
-    let d5 = gpiob.pb4.into_push_pull_output();
-    let d6 = gpiob.pb3.into_push_pull_output();
-    let d7 = gpioa.pa10.into_push_pull_output();
+    let rs = gpioc.pc7.into_push_pull_output();
+    let en = gpiob.pb6.into_push_pull_output();
+    let d4 = gpioa.pa7.into_push_pull_output();
+    let d5 = gpioa.pa6.into_push_pull_output();
+    let d6 = gpioa.pa8.into_push_pull_output();
+    let d7 = gpiob.pb10.into_push_pull_output();
 
     let mut lcd = HD44780::new_4bit(rs, en, d4, d5, d6, d7, &mut delay).unwrap();
     lcd.reset(&mut delay).unwrap();
