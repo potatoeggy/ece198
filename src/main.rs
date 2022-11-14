@@ -68,6 +68,24 @@ type GenericDisplay = HD44780<
     >,
 >;
 
+struct WaterData {
+    ph: f64,
+    cond: f64,
+    hardness: f64,
+}
+
+impl WaterData {
+    pub fn new() -> WaterData {
+        WaterData {
+            ph: 0.0,
+            cond: 0.0,
+            hardness: 0.0,
+        }
+    }
+}
+
+static data: [WaterData] = [WaterData; 10];
+
 #[entry]
 fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
@@ -120,6 +138,15 @@ fn main() -> ! {
     lcd.write_str("Num2", &mut delay).unwrap();
 
     let mut led = gpioa.pa5.into_push_pull_output();
+
+    let data_points: [WaterData; 5] = [
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+    ];
+
     #[allow(clippy::empty_loop)]
     loop {
         delay.delay_ms(500_u16);
