@@ -1,320 +1,244 @@
-#![deny(unsafe_code)]
-#![allow(clippy::empty_loop)]
-#![no_main]
 #![no_std]
+#![no_main]
 
-use core::cell::RefCell;
-
-use cortex_m::interrupt::Mutex;
-use hal::{
-    gpio::{self, Output, PushPull},
-    timer::CounterUs,
-};
-use libm::sqrt;
-// Halt on panic
-use panic_halt as _; // panic handler
+extern crate panic_halt;
 
 use cortex_m_rt::entry;
-use stm32f4::stm32f401::TIM2;
-use stm32f4xx_hal as hal;
+use embedded_hal::digital::v2::InputPin;
+use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use keypad2::Keypad;
+use stm32f4xx_hal::{
+    gpio::{
+        gpioa::{PA10, PA2, PA3},
+        gpiob::{PB10, PB3, PB4, PB5},
+        Input, OpenDrain, Output, Pin, Pull,
+    },
+    pac::{self, TIM1},
+    prelude::*,
+    timer::Delay,
+};
 
-use crate::hal::{pac, prelude::*, timer::Channel};
+// Connections:
+// GND: GND
+// VDD: 5V
+// V0:  10k poti between 5V and GND
+// RS:  D9 / PC7
+// RW:  GND
+// E:   D10 / PB6
+// D4:  D11 / PA7
+// D5:  D12 / PA6
+// D6:  D7 / PA8
+// D7:  D6 / PB10
+// A:   5V
+// K:   GND
 
-type LedPin = gpio::PA5<Output<PushPull>>;
+// Keypad connections:
+// from left to right:
+// D0 / PA3 (C2)
+// D1 / PA2 (R1)
+// D2 / PA10 (C1)
+// D3 / PB3 (R4)
+// D4 / PB5 (C3)
+// D5 / PB4 (R3)
+// discon / D6 / PB10 (R2)
 
-static G_LED: Mutex<RefCell<Option<LedPin>>> = Mutex::new(RefCell::new(None));
-static G_TIM: Mutex<RefCell<Option<CounterUs<TIM2>>>> = Mutex::new(RefCell::new(None));
+// max chars in display
+const MAX_DISPLAY_CHARS: usize = 16;
+
+type GenericKeypad = Keypad<
+    Pin<'A', 2>,
+    Pin<'B', 10>,
+    Pin<'B', 4>,
+    Pin<'B', 3>,
+    Pin<'A', 10, Output<OpenDrain>>,
+    Pin<'A', 3, Output<OpenDrain>>,
+    Pin<'B', 5, Output<OpenDrain>>,
+>;
+
+type GenericDelay = Delay<TIM1, 1000000>;
+
+type GenericDisplay = HD44780<
+    FourBitBus<
+        Pin<'C', 7, Output>,
+        Pin<'B', 6, Output>,
+        Pin<'A', 7, Output>,
+        Pin<'A', 6, Output>,
+        Pin<'A', 8, Output>,
+        Pin<'B', 0, Output>,
+    >,
+>;
+
+struct WaterData {
+    ph: f64,
+    cond: f64,
+    hardness: f64,
+}
+
+impl WaterData {
+    pub fn new() -> WaterData {
+        WaterData {
+            ph: 0.0,
+            cond: 0.0,
+            hardness: 0.0,
+        }
+    }
+}
+
+static data: [WaterData] = [WaterData; 10];
 
 #[entry]
 fn main() -> ! {
-    if let (Some(dp), Some(cp)) = (
-        pac::Peripherals::take(),
-        cortex_m::peripheral::Peripherals::take(),
-    ) {
-        // Set up the LED. On the Nucleo-446RE it"s connected to pin PA5.
-        let gpioa = dp.GPIOA.split();
-        let gpiod = dp.GPIOD.split();
-        let mut led = gpioa.pa5.into_push_pull_output();
+    let dp = pac::Peripherals::take().unwrap();
 
-        // Set up the system clock. We want to run at 48MHz for this one.
-        let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.MHz()).freeze();
+    let rcc = dp.RCC.constrain();
+    let gpiob = dp.GPIOB.split();
+    let gpioa = dp.GPIOA.split();
+    let gpioc = dp.GPIOC.split();
 
-        // Create a delay abstraction based on SysTick
-        let mut delay = cp.SYST.delay(&clocks);
+    let clocks = rcc.cfgr.freeze();
+    let mut delay = dp.TIM1.delay_us(&clocks);
 
-        let buzzer = gpioa.pa9.into_alternate();
-        let mut buzz_pwm = dp.TIM1.pwm_hz(buzzer, 2000.Hz(), &clocks);
+    let dummy_pin = gpiob.pb0.into_push_pull_output();
 
-        let max_duty = buzz_pwm.get_max_duty();
-        buzz_pwm.set_duty(Channel::C2, max_duty / 2);
+    let rows = (
+        gpioa.pa2.into_pull_up_input(),
+        gpiob.pb10.into_pull_up_input(),
+        gpiob.pb4.into_pull_up_input(),
+        gpiob.pb3.into_pull_up_input(),
+    );
+    let cols = (
+        gpioa.pa10.into_open_drain_output(),
+        gpioa.pa3.into_open_drain_output(),
+        gpiob.pb5.into_open_drain_output(),
+    );
 
-        let tones = [
-            ("e0", 165.Hz()),
-            ("f0", 175.Hz()),
-            ("f0+", 185.Hz()),
-            ("g0", 196.Hz()),
-            ("g0+", 208.Hz()),
-            ("a0", 220.Hz()),
-            ("a0+", 233.Hz()),
-            ("b0", 245.Hz()),
-            ("c", 261.Hz()),
-            ("c+", 277.Hz()),
-            ("d", 294.Hz()),
-            ("d+", 311.Hz()),
-            ("e", 329.Hz()),
-            ("f", 349.Hz()),
-            ("f+", 370.Hz()),
-            ("g", 392.Hz()),
-            ("g+", 415.Hz()),
-            ("a", 440.Hz()),
-            ("a+", 466.Hz()),
-            ("b", 493.Hz()),
-            ("c2", 523.Hz()),
-            ("d2", 594.Hz()),
-        ];
+    let mut keypad = Keypad::new(rows, cols);
 
-        let twinkle_twinkle = [
-            ("c", 1),
-            ("c", 1),
-            ("g", 1),
-            ("g", 1),
-            ("a", 1),
-            ("a", 1),
-            ("g", 2),
-            ("f", 1),
-            ("f", 1),
-            ("e", 1),
-            ("e", 1),
-            ("d", 1),
-            ("d", 1),
-            ("c", 2),
-            (" ", 4),
-        ];
+    let rs = gpioc.pc7.into_push_pull_output();
+    let en = gpiob.pb6.into_push_pull_output();
+    let d4 = gpioa.pa7.into_push_pull_output();
+    let d5 = gpioa.pa6.into_push_pull_output();
+    let d6 = gpioa.pa8.into_push_pull_output();
+    let d7 = dummy_pin;
 
-        let scale = [
-            ("c", 1),
-            ("c+", 1),
-            ("d", 1),
-            ("d+", 1),
-            ("e", 1),
-            ("f", 1),
-            ("f+", 1),
-            ("g", 1),
-            ("g+", 1),
-            ("a+", 1),
-            ("a", 1),
-            ("b", 1),
-            (" ", 4),
-        ];
+    let mut lcd = HD44780::new_4bit(rs, en, d4, d5, d6, d7, &mut delay).unwrap();
+    lcd.reset(&mut delay).unwrap();
+    lcd.clear(&mut delay).unwrap();
+    lcd.set_display_mode(
+        DisplayMode {
+            display: Display::On,
+            cursor_visibility: Cursor::Visible,
+            cursor_blink: CursorBlink::On,
+        },
+        &mut delay,
+    )
+    .unwrap();
+    lcd.write_str("Booting...", &mut delay).unwrap();
+    lcd.set_cursor_pos(40, &mut delay).unwrap();
+    lcd.write_str("Num2", &mut delay).unwrap();
 
-        let megalovania = [
-            ("d", 1),
-            ("d", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 2
-            ("c", 1),
-            ("c", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 3
-            ("b0", 1),
-            ("b0", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // bar 3
-            ("a0+", 1),
-            ("a0+", 1),
-            ("d2", 2),
-            ("a", 2),
-            (" ", 1),
-            ("g+", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            // main song
-            ("f", 2),
-            ("f", 1),
-            ("f", 1),
-            (" ", 1),
-            ("f", 1),
-            (" ", 1),
-            ("f", 2),
-            ("d", 1),
-            (" ", 1),
-            ("d", 5),
-            // bar 2
-            ("f", 2),
-            ("f", 1),
-            ("f", 1),
-            (" ", 1),
-            ("g", 1),
-            (" ", 1),
-            ("g+", 3),
-            ("g", 2),
-            ("d", 1),
-            ("f", 1),
-            ("g", 1),
-            (" ", 10000),
-        ];
+    let mut led = gpioa.pa5.into_push_pull_output();
 
-        let mario = [
-            ("e", 2),
-            ("e", 2),
-            (" ", 2),
-            ("e", 2),
-            (" ", 2),
-            ("c", 2),
-            ("e", 4),
-            ("g", 4),
-            (" ", 4),
-            ("g0", 4),
-            (" ", 4),
-            // main part
-            ("c", 4),
-            (" ", 2),
-            ("g0", 4),
-            (" ", 2),
-            ("e0", 4),
-            (" ", 2),
-            ("a0", 4),
-            ("b0", 4),
-            ("a0+", 2),
-            ("a0", 4),
-            ("g0", 3),
-            ("e", 3),
-            ("g", 3),
-            ("a", 4),
-            ("f", 2),
-            ("g", 2),
-            (" ", 2),
-            ("e", 4),
-            ("c", 2),
-            ("d", 2),
-            ("b0", 4),
-            (" ", 10000),
-        ];
+    let data_points: [WaterData; 5] = [
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+        WaterData::new(),
+    ];
 
-        let tune = mario;
+    #[allow(clippy::empty_loop)]
+    loop {
+        delay.delay_ms(500_u16);
 
-        let tempo = 60_u32;
+        let key = keypad.read_char(&mut delay);
 
-        loop {
-            // 1. Obtain a note in the tune
-            for note in tune {
-                // 2. Retrieve the freqeuncy and beat associated with the note
-                for tone in tones {
-                    // 2.1 Find a note match in the tones array and update frequency and beat variables accordingly
-                    if tone.0 == note.0 {
-                        // 3. Play the note for the desired duration (beats*tempo)
-                        // 3.1 Adjust period of the PWM output to match the new frequency
-                        buzz_pwm.set_period(tone.1);
-                        // 3.2 Enable the channel to generate desired PWM
-                        buzz_pwm.enable(Channel::C2);
-                        // 3.3 Keep the output on for as long as required
-                        delay.delay_ms(note.1 * tempo);
-                    } else if note.0 == " " {
-                        // 2.2 if " " tone is found disable output for one beat
-                        buzz_pwm.disable(Channel::C2);
-                        delay.delay_ms(note.1 * tempo / (tempo));
-                    }
-                }
-                // 4. Silence for half a beat between notes
-                // 4.1 Disable the PWM output (silence)
-                buzz_pwm.disable(Channel::C2);
-                // 4.2 Keep the output off for half a beat between notes
-                delay.delay_ms(tempo / 2);
-                // 5. Go back to 1.
+        if key != ' ' {
+            if key == '*' || key == '#' {
+                continue;
+            }
+            //lcd.reset(&mut delay).unwrap();
+            //lcd.write_char(key, &mut delay).unwrap();
+
+            let a = key.to_digit(10).unwrap();
+            for i in 0..a {
+                led.set_high();
+                delay.delay_ms(300u32);
+                led.set_low();
+                delay.delay_ms(300u32);
             }
         }
-    }
 
-    loop {}
+        delay.delay_ms(1u16);
+    }
 }
 
-fn calc_mean(data: &[f64]) -> f64 {
-    let mut total = 0.0;
-    for &val in data {
-        total += val;
-    }
-    total / (data.len() as f64)
-}
-
-fn calc_stdev(data: &[f64]) -> f64 {
-    let len = data.len() as f64;
-    let mut total = 0.0;
-    for &val in data {
-        total += val;
-    }
-
-    let mean = total / len;
-
-    let mut sum = 0.0;
-    for &val in data {
-        sum += (val - mean) * (val - mean);
-    }
-
-    let variance = sum / len;
-    sqrt(variance)
-}
-
-fn calc_median(data: &mut [f64]) -> f64 {
-    bubble_sort(data);
-
-    // TODO: finish
-    0.0
-}
-
-fn bubble_sort(data: &mut [f64]) {
-    // no builtin sorting in rust without std
-    let mut new_len: usize;
-    let mut len = data.len();
+fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
+    delay.delay_ms(1_u16);
 
     loop {
-        new_len = 0;
-        for i in 1..len {
-            if data[i - 1] > data[i] {
-                data.swap(i - 1, i);
-                new_len = i;
+        let key = keypad.read_char(delay);
+
+        if key != ' ' {
+            if key == '#' {
+                // treat as enter
+                return ' ';
+            } else if key == '*' {
+                return '.';
+            } else {
+                // number
+                return key;
             }
         }
-
-        if new_len == 0 {
-            break;
-        }
-
-        len = new_len;
+        delay.delay_ms(10u16);
     }
+}
+
+fn read_line(string: &mut [char], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
+    // TODO: display text on screen on input
+    delay.delay_ms(1_u16);
+    let mut index = 0;
+    loop {
+        let key = keypad.read_char(delay);
+
+        if key != ' ' {
+            let mut char = '.';
+            if key == '#' {
+                // treat as enter
+                break;
+            } else if key == '*' {
+                // decimal point
+                char = '.';
+            } else {
+                // number
+                char = key;
+            }
+
+            // make sure we don't overflow display
+            if index != MAX_DISPLAY_CHARS {
+                string[index] = char;
+                index += 1;
+            }
+        }
+        delay.delay_ms(10u16);
+    }
+    for i in index..MAX_DISPLAY_CHARS {
+        string[i] = '\0';
+    }
+}
+
+fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+    delay.delay_ms(10u16);
+    lcd.reset(delay).unwrap();
+    lcd.write_str(first, delay).unwrap();
+    lcd.set_cursor_pos(40u8, delay).unwrap();
+    lcd.write_str(second, delay).unwrap();
+}
+
+fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+    delay.delay_ms(10u16);
+
+    let pos = if second_line { 40u8 } else { 0u8 };
+    lcd.set_cursor_pos(pos, delay).unwrap();
+    lcd.write_str(string, delay).unwrap(); // hope it also clears the rest of the line
 }
