@@ -96,6 +96,9 @@ fn add_data(
     let hard_status = calcs::eval_hardness(hard);
     let cond_status = calcs::eval_cond(cond);
 
+    let first_line = "pH " + "2";
+    // i'm gonna cry you can actually allocate things
+
     WaterData {
         ph: ph,
         cond: cond,

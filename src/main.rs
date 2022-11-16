@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
+#![feature(default_alloc_error_handler)]
 
+extern crate alloc;
 extern crate panic_halt;
+use alloc_cortex_m::CortexMHeap;
 
 mod types;
 use cortex_m_rt::entry;
@@ -48,8 +51,19 @@ use types::{GenericDelay, GenericDisplay, GenericKeypad, WaterData};
 
 ///static data: [WaterData] = [WaterData; 10];
 
+#[global_allocator]
+static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+
 #[entry]
 fn main() -> ! {
+    // Initialize the allocator BEFORE you use it
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = 1024;
+        static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe { ALLOCATOR.init(HEAP.as_ptr() as usize, HEAP_SIZE) }
+    }
+
     let dp = pac::Peripherals::take().unwrap();
 
     let rcc = dp.RCC.constrain();
