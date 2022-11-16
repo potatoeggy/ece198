@@ -3,6 +3,8 @@
 
 extern crate panic_halt;
 
+mod io;
+mod types;
 use cortex_m_rt::entry;
 use embedded_hal::digital::v2::InputPin;
 use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
@@ -17,6 +19,7 @@ use stm32f4xx_hal::{
     prelude::*,
     timer::Delay,
 };
+use types::{GenericDelay, GenericDisplay, GenericKeypad, WaterData};
 
 // Connections:
 // GND: GND
@@ -43,48 +46,8 @@ use stm32f4xx_hal::{
 // discon / D6 / PB10 (R2)
 
 // max chars in display
-const MAX_DISPLAY_CHARS: usize = 16;
 
-type GenericKeypad = Keypad<
-    Pin<'A', 2>,
-    Pin<'B', 10>,
-    Pin<'B', 4>,
-    Pin<'B', 3>,
-    Pin<'A', 10, Output<OpenDrain>>,
-    Pin<'A', 3, Output<OpenDrain>>,
-    Pin<'B', 5, Output<OpenDrain>>,
->;
-
-type GenericDelay = Delay<TIM1, 1000000>;
-
-type GenericDisplay = HD44780<
-    FourBitBus<
-        Pin<'C', 7, Output>,
-        Pin<'B', 6, Output>,
-        Pin<'A', 7, Output>,
-        Pin<'A', 6, Output>,
-        Pin<'A', 8, Output>,
-        Pin<'B', 0, Output>,
-    >,
->;
-
-struct WaterData {
-    ph: f64,
-    cond: f64,
-    hardness: f64,
-}
-
-impl WaterData {
-    pub fn new() -> WaterData {
-        WaterData {
-            ph: 0.0,
-            cond: 0.0,
-            hardness: 0.0,
-        }
-    }
-}
-
-static data: [WaterData] = [WaterData; 10];
+///static data: [WaterData] = [WaterData; 10];
 
 #[entry]
 fn main() -> ! {
@@ -171,74 +134,4 @@ fn main() -> ! {
 
         delay.delay_ms(1u16);
     }
-}
-
-fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
-    delay.delay_ms(1_u16);
-
-    loop {
-        let key = keypad.read_char(delay);
-
-        if key != ' ' {
-            if key == '#' {
-                // treat as enter
-                return ' ';
-            } else if key == '*' {
-                return '.';
-            } else {
-                // number
-                return key;
-            }
-        }
-        delay.delay_ms(10u16);
-    }
-}
-
-fn read_line(string: &mut [char], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
-    // TODO: display text on screen on input
-    delay.delay_ms(1_u16);
-    let mut index = 0;
-    loop {
-        let key = keypad.read_char(delay);
-
-        if key != ' ' {
-            let mut char = '.';
-            if key == '#' {
-                // treat as enter
-                break;
-            } else if key == '*' {
-                // decimal point
-                char = '.';
-            } else {
-                // number
-                char = key;
-            }
-
-            // make sure we don't overflow display
-            if index != MAX_DISPLAY_CHARS {
-                string[index] = char;
-                index += 1;
-            }
-        }
-        delay.delay_ms(10u16);
-    }
-    for i in index..MAX_DISPLAY_CHARS {
-        string[i] = '\0';
-    }
-}
-
-fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
-    delay.delay_ms(10u16);
-    lcd.reset(delay).unwrap();
-    lcd.write_str(first, delay).unwrap();
-    lcd.set_cursor_pos(40u8, delay).unwrap();
-    lcd.write_str(second, delay).unwrap();
-}
-
-fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
-    delay.delay_ms(10u16);
-
-    let pos = if second_line { 40u8 } else { 0u8 };
-    lcd.set_cursor_pos(pos, delay).unwrap();
-    lcd.write_str(string, delay).unwrap(); // hope it also clears the rest of the line
 }
