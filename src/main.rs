@@ -3,7 +3,6 @@
 
 extern crate panic_halt;
 
-mod io;
 mod types;
 use cortex_m_rt::entry;
 use embedded_hal::digital::v2::InputPin;
