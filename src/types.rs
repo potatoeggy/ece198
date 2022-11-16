@@ -1,6 +1,8 @@
+use alloc::{format, string::String};
 use embedded_hal::digital::v2::InputPin;
 use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
 use keypad2::Keypad;
+use libm::sqrt;
 use stm32f4xx_hal::{
     gpio::{
         gpioa::{PA10, PA2, PA3},
@@ -11,9 +13,14 @@ use stm32f4xx_hal::{
     prelude::*,
     timer::Delay,
 };
+
+use self::calcs::QualityLevel;
 mod calcs;
 
 const MAX_DISPLAY_CHARS: usize = 16;
+const PH_STANDARD: f64 = 7.0;
+const COND_STANDARD: f64 = 400.0;
+const HARD_STANDARD: f64 = 90.0;
 
 pub type GenericKeypad = Keypad<
     Pin<'A', 2>,
@@ -54,6 +61,30 @@ impl WaterData {
     }
 }
 
+pub struct Stat {
+    avg: f64,
+    stdev: f64,
+    standard: f64,
+    num_total: usize,
+    num_success: usize,
+}
+
+impl Stat {
+    pub fn new(data: &[f64], standard: f64, qualifier: &dyn Fn(f64) -> QualityLevel) -> Stat {
+        Stat {
+            avg: calc_avg(data),
+            stdev: calc_stdev(data),
+            standard: standard,
+            num_total: data.len(),
+            num_success: data
+                .iter()
+                .map(|&d| qualifier(d))
+                .filter(|&d| d == QualityLevel::Good || d == QualityLevel::Ok)
+                .count(),
+        }
+    }
+}
+
 fn print_main_menu(lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
     write_screen("1. New data", "2. Summary (x)", lcd, delay);
 }
@@ -82,28 +113,51 @@ fn add_data(
         let mut input = ['\0'; MAX_DISPLAY_CHARS];
         read_line(&mut input, keypad, delay);
 
-        let mut char_buffer = [0; MAX_DISPLAY_CHARS * 4];
-        for (i, c) in input.iter().enumerate() {
-            // this probably works?? i hope
-            // we might get more zeros than i'd hoped
-            c.encode_utf8(&mut char_buffer[i * 4..i * 4 + 4]);
-        }
-        *var = lexical_core::parse::<f64>(&char_buffer).unwrap();
+        *var = input
+            .iter()
+            .collect::<String>()
+            .parse::<f64>()
+            .unwrap()
+            .into();
     }
 
     // presentation screen 1
     let ph_status = calcs::eval_ph(ph);
     let hard_status = calcs::eval_hardness(hard);
     let cond_status = calcs::eval_cond(cond);
+    let total_status = if ph_status == QualityLevel::Poor
+        || hard_status == QualityLevel::Poor
+        || ph_status == QualityLevel::Poor
+    {
+        QualityLevel::Poor
+    } else {
+        QualityLevel::Good
+    };
 
-    let first_line = "pH " + "2";
+    let first_line = format!("pH {}   Cond {}", ph_status.code(), cond_status.code());
+    let second_line = format!("Ha {}   Total {}", hard_status.code(), total_status.code());
     // i'm gonna cry you can actually allocate things
+    write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
+    read_char(keypad, delay);
+
+    // pH suggestion screen
+
+    // cond suggestion screen
+
+    // TODO: hard suggestion screen
 
     WaterData {
         ph: ph,
         cond: cond,
         hardness: hard,
     }
+}
+
+fn summary(data: &[WaterData], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
+    for d in data {
+        read_char(keypad, delay);
+    }
+    // TODO
 }
 
 fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
@@ -184,4 +238,30 @@ fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: 
 fn shift_line(first_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
     let pos: u8 = if first_line { 0 } else { 40 };
     lcd.set_cursor_pos(pos, delay).unwrap();
+}
+
+fn calc_stdev(data: &[f64]) -> f64 {
+    let len = data.len() as f64;
+    let mut total = 0.0;
+    for &val in data {
+        total += val;
+    }
+
+    let mean = total / len;
+    let mut sum = 0.0;
+    for &val in data {
+        sum += (val - mean) * (val - mean);
+    }
+
+    let variance = sum / len;
+    sqrt(variance)
+}
+
+fn calc_avg(data: &[f64]) -> f64 {
+    let len = data.len() as f64;
+    let mut total = 0.0;
+    for &val in data {
+        total += val;
+    }
+    total / len
 }

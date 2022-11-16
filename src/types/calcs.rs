@@ -1,5 +1,6 @@
-use libm;
+use libm::{self, sqrt};
 
+#[derive(PartialEq, Clone, Copy)]
 pub enum QualityLevel {
     Poor,
     Ok,
@@ -10,6 +11,16 @@ pub enum Suggestion {
     Remove(f64),
     Add(f64),
     None,
+}
+
+impl QualityLevel {
+    pub fn code(&self) -> &str {
+        match *self {
+            QualityLevel::Good => "OK",
+            QualityLevel::Ok => "ME",
+            QualityLevel::Poor => "XD",
+        }
+    }
 }
 
 // HARDNESS:
