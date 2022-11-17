@@ -203,7 +203,11 @@ pub fn add_data(
             Suggestion::Remove(x) => x.to_string(),
         };
 
-        let second_line = format!("{:.2} {}", value, units);
+        let second_line = if suggestion != Suggestion::None {
+            format!("{:.2} {}", value, units)
+        } else {
+            String::new()
+        };
 
         write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
         read_char(keypad, delay);

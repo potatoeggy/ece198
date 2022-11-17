@@ -7,7 +7,7 @@ pub enum QualityLevel {
     Good,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Suggestion {
     Remove(f64),
     Add(f64),

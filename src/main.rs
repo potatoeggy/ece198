@@ -135,6 +135,7 @@ fn main() -> ! {
         }
         if index < 5 {
             data_points[index] = add_data(&mut keypad, &mut lcd, &mut delay);
+            index += 1;
         } else {
             // run summary
         }
