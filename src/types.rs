@@ -262,7 +262,7 @@ pub fn summary(
         stdev_str.truncate(4);
         avg_str.truncate(4);
 
-        let second_line = format!("     {}, {}", avg_str, stdev_str);
+        let second_line = format!("     {:4}  {:4}", avg_str, stdev_str);
 
         write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
 
