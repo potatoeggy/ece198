@@ -19,7 +19,7 @@ impl QualityLevel {
         match *self {
             QualityLevel::Good => "OK",
             QualityLevel::Ok => "ME",
-            QualityLevel::Poor => "XD",
+            QualityLevel::Poor => "DX",
         }
     }
 }
