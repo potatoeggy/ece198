@@ -117,7 +117,7 @@ fn main() -> ! {
 
     let mut led = gpioa.pa5.into_push_pull_output();
 
-    let data_points: [WaterData; 5] = [
+    let mut data_points: [WaterData; 5] = [
         WaterData::new(),
         WaterData::new(),
         WaterData::new(),
@@ -126,12 +126,17 @@ fn main() -> ! {
     ];
 
     #[allow(clippy::empty_loop)]
+    let index = 0;
     loop {
-        print_main_menu(&mut lcd, &mut delay);
+        print_main_menu(index, &mut lcd, &mut delay);
         let c = read_char(&mut keypad, &mut delay);
         if c == '*' || c == '#' {
             continue;
         }
-        add_data(&mut keypad, &mut lcd, &mut delay);
+        if index < 5 {
+            data_points[index] = add_data(&mut keypad, &mut lcd, &mut delay);
+        } else {
+            // run summary
+        }
     }
 }

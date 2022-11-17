@@ -89,8 +89,13 @@ impl Stat {
     }
 }
 
-pub fn print_main_menu(lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
-    write_screen("1. New data", "2. Summary (x)", lcd, delay);
+pub fn print_main_menu(num_entries: usize, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+    write_screen(
+        "1. New data",
+        format!("2. Summary ({})", num_entries).as_str(),
+        lcd,
+        delay,
+    );
 }
 
 pub fn add_data(
