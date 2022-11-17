@@ -1,20 +1,14 @@
 use alloc::{
-    fmt::format,
     format,
     string::{String, ToString},
     vec::Vec,
 };
-use embedded_hal::digital::v2::InputPin;
-use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use hd44780_driver::{bus::FourBitBus, HD44780};
 use keypad2::Keypad;
 use libm::sqrt;
 use stm32f4xx_hal::{
-    gpio::{
-        gpioa::{PA10, PA2, PA3},
-        gpiob::{PB10, PB3, PB4, PB5},
-        Input, OpenDrain, Output, Pin, Pull,
-    },
-    pac::{self, TIM1},
+    gpio::{OpenDrain, Output, Pin},
+    pac::TIM1,
     prelude::*,
     timer::Delay,
 };
@@ -26,9 +20,6 @@ use self::calcs::{
 mod calcs;
 
 const MAX_DISPLAY_CHARS: usize = 16;
-const PH_STANDARD: f64 = 7.0;
-const COND_STANDARD: f64 = 400.0;
-const HARD_STANDARD: f64 = 90.0;
 
 pub type GenericKeypad = Keypad<
     Pin<'A', 2>,
@@ -236,7 +227,7 @@ pub fn summary(
         &str,
     ); 3] = [
         ("pH", &|f: WaterData| f.ph, &eval_ph, "7.0"),
-        ("Cond", &|f: WaterData| f.cond, &eval_cond, "85.0 mg/L"),
+        ("Cond", &|f: WaterData| f.cond, &eval_cond, "400.0 mg/L"),
         (
             "Hard",
             &|f: WaterData| f.hardness,
