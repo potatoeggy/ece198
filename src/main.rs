@@ -126,7 +126,7 @@ fn main() -> ! {
     ];
 
     #[allow(clippy::empty_loop)]
-    let index = 0;
+    let mut index = 0;
     loop {
         print_main_menu(index, &mut lcd, &mut delay);
         let c = read_char(&mut keypad, &mut delay);
