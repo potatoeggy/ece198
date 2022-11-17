@@ -22,7 +22,8 @@ use stm32f4xx_hal::{
     timer::Delay,
 };
 use types::{
-    add_data, print_main_menu, read_char, GenericDelay, GenericDisplay, GenericKeypad, WaterData,
+    add_data, print_main_menu, read_char, summary, GenericDelay, GenericDisplay, GenericKeypad,
+    WaterData,
 };
 
 // Connections:
@@ -117,13 +118,7 @@ fn main() -> ! {
 
     let mut led = gpioa.pa5.into_push_pull_output();
 
-    let mut data_points: [WaterData; 5] = [
-        WaterData::new(),
-        WaterData::new(),
-        WaterData::new(),
-        WaterData::new(),
-        WaterData::new(),
-    ];
+    let mut data_points: [WaterData; 3] = [WaterData::new(), WaterData::new(), WaterData::new()];
 
     #[allow(clippy::empty_loop)]
     let mut index = 0;
@@ -133,11 +128,11 @@ fn main() -> ! {
         if c == '*' || c == '#' {
             continue;
         }
-        if index < 5 {
+        if index < data_points.len() {
             data_points[index] = add_data(&mut keypad, &mut lcd, &mut delay);
             index += 1;
         } else {
-            // run summary
+            summary(&data_points, &mut keypad, &mut delay, &mut lcd);
         }
     }
 }
