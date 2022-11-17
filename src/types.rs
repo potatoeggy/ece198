@@ -154,8 +154,8 @@ pub fn add_data(
         (
             "pH",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add base",
-                Suggestion::Remove(a) => "remove base",
+                Suggestion::Add(_) => "add base",
+                Suggestion::Remove(_) => "remove base",
                 Suggestion::None => "Good",
             },
             &improve_ph,
@@ -165,8 +165,8 @@ pub fn add_data(
         (
             "Cond",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add salt",
-                Suggestion::Remove(a) => "rem. salt",
+                Suggestion::Add(_) => "add salt",
+                Suggestion::Remove(_) => "rem. salt",
                 Suggestion::None => "Good",
             },
             &improve_cond,
@@ -176,8 +176,8 @@ pub fn add_data(
         (
             "Ha",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add CaCO3",
-                Suggestion::Remove(a) => "rem. CaCO3",
+                Suggestion::Add(_) => "add CaCO3",
+                Suggestion::Remove(_) => "rem. CaCO3",
                 Suggestion::None => "Good",
             },
             &improve_hardness,
@@ -303,7 +303,7 @@ pub fn read_line(
         let key = keypad.read_char(delay);
 
         if key != ' ' {
-            let mut char = '.';
+            let char;
             if key == '#' && index > 0 {
                 // treat as enter
                 // do not accept blank input

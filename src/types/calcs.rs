@@ -1,4 +1,4 @@
-use libm::{self, sqrt};
+use libm;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum QualityLevel {
