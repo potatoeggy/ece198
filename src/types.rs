@@ -227,7 +227,7 @@ pub fn summary(
         &str,
     ); 3] = [
         ("pH", &|f: WaterData| f.ph, &eval_ph, "7.0"),
-        ("Cond", &|f: WaterData| f.cond, &eval_cond, "400.0 mg/L"),
+        ("Cond", &|f: WaterData| f.cond, &eval_cond, "400.0 mS/cm"),
         (
             "Hard",
             &|f: WaterData| f.hardness,
