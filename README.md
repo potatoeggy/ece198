@@ -15,6 +15,9 @@ rustup toolchain install nightly
 Cargo and STLink are required to build and flash the program:
 
 ```
-cargo install
+cd ece198
+cargo install cargo-flash
+cargo install --path .
 cargo flash --target STM32F4xxx
 ```
+Pin layout is described in `main.rs` and you can probably figure out the hardware used from that. 
