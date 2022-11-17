@@ -57,9 +57,9 @@ pub fn improve_hardness(hardness: f64) -> Suggestion {
 // 8.5+: BAD
 
 pub fn eval_ph(ph: f64) -> QualityLevel {
-    if ph > 8.5 || ph < 6.5 {
+    if ph > 8.5 || ph < 6.0 {
         QualityLevel::Poor
-    } else if ph > 8.0 || ph < 6.0 {
+    } else if ph > 8.0 || ph < 6.5 {
         QualityLevel::Ok
     } else {
         QualityLevel::Good
