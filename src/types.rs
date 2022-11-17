@@ -1,20 +1,14 @@
 use alloc::{
-    fmt::format,
     format,
     string::{String, ToString},
     vec::Vec,
 };
-use embedded_hal::digital::v2::InputPin;
-use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use hd44780_driver::{bus::FourBitBus, HD44780};
 use keypad2::Keypad;
 use libm::sqrt;
 use stm32f4xx_hal::{
-    gpio::{
-        gpioa::{PA10, PA2, PA3},
-        gpiob::{PB10, PB3, PB4, PB5},
-        Input, OpenDrain, Output, Pin, Pull,
-    },
-    pac::{self, TIM1},
+    gpio::{OpenDrain, Output, Pin},
+    pac::TIM1,
     prelude::*,
     timer::Delay,
 };
@@ -26,9 +20,6 @@ use self::calcs::{
 mod calcs;
 
 const MAX_DISPLAY_CHARS: usize = 16;
-const PH_STANDARD: f64 = 7.0;
-const COND_STANDARD: f64 = 400.0;
-const HARD_STANDARD: f64 = 90.0;
 
 pub type GenericKeypad = Keypad<
     Pin<'A', 2>,
@@ -163,8 +154,8 @@ pub fn add_data(
         (
             "pH",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add base",
-                Suggestion::Remove(a) => "remove base",
+                Suggestion::Add(_) => "add base",
+                Suggestion::Remove(_) => "remove base",
                 Suggestion::None => "Good",
             },
             &improve_ph,
@@ -174,8 +165,8 @@ pub fn add_data(
         (
             "Cond",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add salt",
-                Suggestion::Remove(a) => "rem. salt",
+                Suggestion::Add(_) => "add salt",
+                Suggestion::Remove(_) => "rem. salt",
                 Suggestion::None => "Good",
             },
             &improve_cond,
@@ -185,8 +176,8 @@ pub fn add_data(
         (
             "Ha",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add CaCO3",
-                Suggestion::Remove(a) => "rem. CaCO3",
+                Suggestion::Add(_) => "add CaCO3",
+                Suggestion::Remove(_) => "rem. CaCO3",
                 Suggestion::None => "Good",
             },
             &improve_hardness,
@@ -236,7 +227,7 @@ pub fn summary(
         &str,
     ); 3] = [
         ("pH", &|f: WaterData| f.ph, &eval_ph, "7.0"),
-        ("Cond", &|f: WaterData| f.cond, &eval_cond, "85.0 mg/L"),
+        ("Cond", &|f: WaterData| f.cond, &eval_cond, "400.0 mg/L"),
         (
             "Hard",
             &|f: WaterData| f.hardness,
@@ -312,7 +303,7 @@ pub fn read_line(
         let key = keypad.read_char(delay);
 
         if key != ' ' {
-            let mut char = '.';
+            let char;
             if key == '#' && index > 0 {
                 // treat as enter
                 // do not accept blank input

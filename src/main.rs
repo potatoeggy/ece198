@@ -8,23 +8,10 @@ use alloc_cortex_m::CortexMHeap;
 
 mod types;
 use cortex_m_rt::entry;
-use embedded_hal::digital::v2::InputPin;
-use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
 use keypad2::Keypad;
-use stm32f4xx_hal::{
-    gpio::{
-        gpioa::{PA10, PA2, PA3},
-        gpiob::{PB10, PB3, PB4, PB5},
-        Input, OpenDrain, Output, Pin, Pull,
-    },
-    pac::{self, TIM1},
-    prelude::*,
-    timer::Delay,
-};
-use types::{
-    add_data, print_main_menu, read_char, summary, GenericDelay, GenericDisplay, GenericKeypad,
-    WaterData,
-};
+use stm32f4xx_hal::{pac, prelude::*};
+use types::{add_data, print_main_menu, read_char, summary, WaterData};
 
 // Connections:
 // GND: GND
@@ -77,8 +64,6 @@ fn main() -> ! {
     let clocks = rcc.cfgr.freeze();
     let mut delay = dp.TIM1.delay_us(&clocks);
 
-    let dummy_pin = gpiob.pb0.into_push_pull_output();
-
     let rows = (
         gpioa.pa2.into_pull_up_input(),
         gpiob.pb10.into_pull_up_input(),
@@ -116,11 +101,8 @@ fn main() -> ! {
     lcd.set_cursor_pos(40, &mut delay).unwrap();
     lcd.write_str("Num2", &mut delay).unwrap();
 
-    let mut led = gpioa.pa5.into_push_pull_output();
-
     let mut data_points: [WaterData; 3] = [WaterData::new(), WaterData::new(), WaterData::new()];
 
-    #[allow(clippy::empty_loop)]
     let mut index = 0;
     loop {
         print_main_menu(index, &mut lcd, &mut delay);
