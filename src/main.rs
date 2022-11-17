@@ -132,7 +132,6 @@ fn main() -> ! {
         if c == '*' || c == '#' {
             continue;
         }
-        let c_int = c.to_digit(10).unwrap();
         add_data(&mut keypad, &mut lcd, &mut delay);
     }
 }

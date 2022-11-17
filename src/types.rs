@@ -153,21 +153,21 @@ pub fn add_data(
         &str,
     ); 3] = [
         (
-            "pH:",
+            "pH",
             &|x: Suggestion| match x {
-                Suggestion::Add(a) => "add base OH-:",
-                Suggestion::Remove(a) => "remove base OH-:",
+                Suggestion::Add(a) => "add base:",
+                Suggestion::Remove(a) => "remove base:",
                 Suggestion::None => "Good",
             },
             &improve_ph,
             &ph,
-            "mg/L CaCO3",
+            "mol/L OH-",
         ),
         (
-            "Cond:",
+            "Cond",
             &|x: Suggestion| match x {
                 Suggestion::Add(a) => "add salt:",
-                Suggestion::Remove(a) => "remove salt:",
+                Suggestion::Remove(a) => "rem. salt:",
                 Suggestion::None => "Good",
             },
             &improve_cond,
@@ -175,15 +175,15 @@ pub fn add_data(
             "mg/L",
         ),
         (
-            "Ha:",
+            "Ha",
             &|x: Suggestion| match x {
                 Suggestion::Add(a) => "add CaCO3:",
-                Suggestion::Remove(a) => "remove CaCO3:",
+                Suggestion::Remove(a) => "rem. CaCO3:",
                 Suggestion::None => "Good",
             },
             &improve_hardness,
             &hard,
-            "mg/L",
+            "mg/L CaCO3",
         ),
     ];
 
@@ -198,9 +198,10 @@ pub fn add_data(
             Suggestion::Remove(x) => x.to_string(),
         };
 
-        let second_line = format!("{} {}", value, units);
+        let second_line = format!("{:.2} {}", value, units);
 
         write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
+        read_char(keypad, delay);
     }
 
     WaterData {
@@ -253,9 +254,12 @@ pub fn read_line(
 
         if key != ' ' {
             let mut char = '.';
-            if key == '#' {
+            if key == '#' && index > 0 {
                 // treat as enter
+                // do not accept blank input
                 break;
+            } else if key == '#' {
+                continue;
             } else if key == '*' {
                 // decimal point
                 char = '.';
