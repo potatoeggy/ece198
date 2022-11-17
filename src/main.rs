@@ -21,7 +21,9 @@ use stm32f4xx_hal::{
     prelude::*,
     timer::Delay,
 };
-use types::{GenericDelay, GenericDisplay, GenericKeypad, WaterData};
+use types::{
+    add_data, print_main_menu, read_char, GenericDelay, GenericDisplay, GenericKeypad, WaterData,
+};
 
 // Connections:
 // GND: GND
@@ -32,10 +34,10 @@ use types::{GenericDelay, GenericDisplay, GenericKeypad, WaterData};
 // E:   D10 / PB6
 // D4:  D11 / PA7
 // D5:  D12 / PA6
-// D6:  D7 / PA8
-// D7:  D6 / PB10
-// A:   5V
-// K:   GND
+// D6:  D8 / PA9
+// D7:  D7 / PA8
+// BLA:   5V
+// BLK:   GND
 
 // Keypad connections:
 // from left to right:
@@ -45,7 +47,7 @@ use types::{GenericDelay, GenericDisplay, GenericKeypad, WaterData};
 // D3 / PB3 (R4)
 // D4 / PB5 (C3)
 // D5 / PB4 (R3)
-// discon / D6 / PB10 (R2)
+// D6 / PB10 (R2)
 
 // max chars in display
 
@@ -94,8 +96,8 @@ fn main() -> ! {
     let en = gpiob.pb6.into_push_pull_output();
     let d4 = gpioa.pa7.into_push_pull_output();
     let d5 = gpioa.pa6.into_push_pull_output();
-    let d6 = gpioa.pa8.into_push_pull_output();
-    let d7 = dummy_pin;
+    let d6 = gpioa.pa9.into_push_pull_output();
+    let d7 = gpioa.pa8.into_push_pull_output();
 
     let mut lcd = HD44780::new_4bit(rs, en, d4, d5, d6, d7, &mut delay).unwrap();
     lcd.reset(&mut delay).unwrap();
@@ -125,26 +127,12 @@ fn main() -> ! {
 
     #[allow(clippy::empty_loop)]
     loop {
-        delay.delay_ms(500_u16);
-
-        let key = keypad.read_char(&mut delay);
-
-        if key != ' ' {
-            if key == '*' || key == '#' {
-                continue;
-            }
-            //lcd.reset(&mut delay).unwrap();
-            //lcd.write_char(key, &mut delay).unwrap();
-
-            let a = key.to_digit(10).unwrap();
-            for i in 0..a {
-                led.set_high();
-                delay.delay_ms(300u32);
-                led.set_low();
-                delay.delay_ms(300u32);
-            }
+        print_main_menu(&mut lcd, &mut delay);
+        let c = read_char(&mut keypad, &mut delay);
+        if c == '*' || c == '#' {
+            continue;
         }
-
-        delay.delay_ms(1u16);
+        let c_int = c.to_digit(10).unwrap();
+        add_data(&mut keypad, &mut lcd, &mut delay);
     }
 }

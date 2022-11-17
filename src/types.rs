@@ -1,4 +1,8 @@
-use alloc::{format, string::String};
+use alloc::{
+    fmt::format,
+    format,
+    string::{String, ToString},
+};
 use embedded_hal::digital::v2::InputPin;
 use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
 use keypad2::Keypad;
@@ -14,7 +18,7 @@ use stm32f4xx_hal::{
     timer::Delay,
 };
 
-use self::calcs::QualityLevel;
+use self::calcs::{eval_ph, improve_cond, improve_hardness, improve_ph, QualityLevel, Suggestion};
 mod calcs;
 
 const MAX_DISPLAY_CHARS: usize = 16;
@@ -40,8 +44,8 @@ pub type GenericDisplay = HD44780<
         Pin<'B', 6, Output>,
         Pin<'A', 7, Output>,
         Pin<'A', 6, Output>,
+        Pin<'A', 9, Output>,
         Pin<'A', 8, Output>,
-        Pin<'B', 0, Output>,
     >,
 >;
 
@@ -85,11 +89,11 @@ impl Stat {
     }
 }
 
-fn print_main_menu(lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+pub fn print_main_menu(lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
     write_screen("1. New data", "2. Summary (x)", lcd, delay);
 }
 
-fn add_data(
+pub fn add_data(
     keypad: &mut GenericKeypad,
     lcd: &mut GenericDisplay,
     delay: &mut GenericDelay,
@@ -110,15 +114,16 @@ fn add_data(
         write_line(text, false, lcd, delay);
         shift_line(false, lcd, delay);
 
-        let mut input = ['\0'; MAX_DISPLAY_CHARS];
-        read_line(&mut input, keypad, delay);
+        let mut input = [' '; MAX_DISPLAY_CHARS];
+        read_line(&mut input, keypad, delay, lcd);
 
+        write_line(input.iter().collect::<String>().trim(), false, lcd, delay);
         *var = input
             .iter()
             .collect::<String>()
+            .trim()
             .parse::<f64>()
-            .unwrap()
-            .into();
+            .unwrap();
     }
 
     // presentation screen 1
@@ -134,17 +139,69 @@ fn add_data(
         QualityLevel::Good
     };
 
-    let first_line = format!("pH {}   Cond {}", ph_status.code(), cond_status.code());
+    let first_line = format!("pH {}   Cond  {}", ph_status.code(), cond_status.code());
     let second_line = format!("Ha {}   Total {}", hard_status.code(), total_status.code());
     // i'm gonna cry you can actually allocate things
     write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
     read_char(keypad, delay);
 
-    // pH suggestion screen
+    let improvements: [(
+        &str,
+        &dyn Fn(Suggestion) -> &'static str,
+        &dyn Fn(f64) -> Suggestion,
+        &f64,
+        &str,
+    ); 3] = [
+        (
+            "pH:",
+            &|x: Suggestion| match x {
+                Suggestion::Add(a) => "add base OH-:",
+                Suggestion::Remove(a) => "remove base OH-:",
+                Suggestion::None => "Good",
+            },
+            &improve_ph,
+            &ph,
+            "mg/L CaCO3",
+        ),
+        (
+            "Cond:",
+            &|x: Suggestion| match x {
+                Suggestion::Add(a) => "add salt:",
+                Suggestion::Remove(a) => "remove salt:",
+                Suggestion::None => "Good",
+            },
+            &improve_cond,
+            &cond,
+            "mg/L",
+        ),
+        (
+            "Ha:",
+            &|x: Suggestion| match x {
+                Suggestion::Add(a) => "add CaCO3:",
+                Suggestion::Remove(a) => "remove CaCO3:",
+                Suggestion::None => "Good",
+            },
+            &improve_hardness,
+            &hard,
+            "mg/L",
+        ),
+    ];
 
-    // cond suggestion screen
+    for (title, desc_gen, improve_gen, &val, units) in improvements {
+        let suggestion = improve_gen(val);
+        let desc_text = desc_gen(suggestion);
+        let first_line = format!("{}: {}", title, desc_text);
 
-    // TODO: hard suggestion screen
+        let value = match suggestion {
+            Suggestion::None => String::new(),
+            Suggestion::Add(x) => x.to_string(),
+            Suggestion::Remove(x) => x.to_string(),
+        };
+
+        let second_line = format!("{} {}", value, units);
+
+        write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
+    }
 
     WaterData {
         ph: ph,
@@ -153,14 +210,14 @@ fn add_data(
     }
 }
 
-fn summary(data: &[WaterData], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
+pub fn summary(data: &[WaterData], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
     for d in data {
         read_char(keypad, delay);
     }
     // TODO
 }
 
-fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
+pub fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
     delay.delay_ms(1_u16);
 
     loop {
@@ -181,14 +238,16 @@ fn read_char(keypad: &mut GenericKeypad, delay: &mut GenericDelay) -> char {
     }
 }
 
-fn read_line(
+pub fn read_line(
     string: &mut [char; MAX_DISPLAY_CHARS],
     keypad: &mut GenericKeypad,
     delay: &mut GenericDelay,
+    lcd: &mut GenericDisplay,
 ) {
     // TODO: display text on screen on input
     delay.delay_ms(1_u16);
     let mut index = 0;
+
     loop {
         let key = keypad.read_char(delay);
 
@@ -209,16 +268,17 @@ fn read_line(
             if index != MAX_DISPLAY_CHARS {
                 string[index] = char;
                 index += 1;
+                lcd.write_char(char, delay).unwrap();
             }
         }
-        delay.delay_ms(10u16);
+        delay.delay_ms(100u16);
     }
     for i in index..MAX_DISPLAY_CHARS {
-        string[i] = '\0';
+        string[i] = ' ';
     }
 }
 
-fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+pub fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
     delay.delay_ms(10u16);
     lcd.clear(delay).unwrap();
     lcd.reset(delay).unwrap();
@@ -227,7 +287,12 @@ fn write_screen(first: &str, second: &str, lcd: &mut GenericDisplay, delay: &mut
     lcd.write_str(second, delay).unwrap();
 }
 
-fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+pub fn write_line(
+    string: &str,
+    second_line: bool,
+    lcd: &mut GenericDisplay,
+    delay: &mut GenericDelay,
+) {
     delay.delay_ms(10u16);
 
     let pos = if second_line { 40u8 } else { 0u8 };
@@ -235,12 +300,12 @@ fn write_line(string: &str, second_line: bool, lcd: &mut GenericDisplay, delay: 
     lcd.write_str(string, delay).unwrap(); // hope it also clears the rest of the line
 }
 
-fn shift_line(first_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
+pub fn shift_line(first_line: bool, lcd: &mut GenericDisplay, delay: &mut GenericDelay) {
     let pos: u8 = if first_line { 0 } else { 40 };
     lcd.set_cursor_pos(pos, delay).unwrap();
 }
 
-fn calc_stdev(data: &[f64]) -> f64 {
+pub fn calc_stdev(data: &[f64]) -> f64 {
     let len = data.len() as f64;
     let mut total = 0.0;
     for &val in data {
@@ -257,7 +322,7 @@ fn calc_stdev(data: &[f64]) -> f64 {
     sqrt(variance)
 }
 
-fn calc_avg(data: &[f64]) -> f64 {
+pub fn calc_avg(data: &[f64]) -> f64 {
     let len = data.len() as f64;
     let mut total = 0.0;
     for &val in data {

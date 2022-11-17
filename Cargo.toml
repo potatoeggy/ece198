@@ -20,7 +20,7 @@ no-std-compat = {version="0.4.1", features=["alloc"]}
 [dependencies.lexical-core]
 version = "0.8.5"
 default-features = false
-features = ["parse-floats"]
+features = ["parse-floats", "write-floats"]
 
 [dependencies.stm32f4xx-hal]
 features = ["stm32f401", "rt"]
