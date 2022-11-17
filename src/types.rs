@@ -2,6 +2,7 @@ use alloc::{
     fmt::format,
     format,
     string::{String, ToString},
+    vec::Vec,
 };
 use embedded_hal::digital::v2::InputPin;
 use hd44780_driver::{bus::FourBitBus, Cursor, CursorBlink, Display, DisplayMode, HD44780};
@@ -18,7 +19,10 @@ use stm32f4xx_hal::{
     timer::Delay,
 };
 
-use self::calcs::{eval_ph, improve_cond, improve_hardness, improve_ph, QualityLevel, Suggestion};
+use self::calcs::{
+    eval_cond, eval_hardness, eval_ph, improve_cond, improve_hardness, improve_ph, QualityLevel,
+    Suggestion,
+};
 mod calcs;
 
 const MAX_DISPLAY_CHARS: usize = 16;
@@ -49,6 +53,7 @@ pub type GenericDisplay = HD44780<
     >,
 >;
 
+#[derive(Copy, Clone)]
 pub struct WaterData {
     ph: f64,
     cond: f64,
@@ -68,17 +73,15 @@ impl WaterData {
 pub struct Stat {
     avg: f64,
     stdev: f64,
-    standard: f64,
     num_total: usize,
     num_success: usize,
 }
 
 impl Stat {
-    pub fn new(data: &[f64], standard: f64, qualifier: &dyn Fn(f64) -> QualityLevel) -> Stat {
+    pub fn new(data: Vec<f64>, qualifier: &dyn Fn(f64) -> QualityLevel) -> Stat {
         Stat {
-            avg: calc_avg(data),
-            stdev: calc_stdev(data),
-            standard: standard,
+            avg: calc_avg(&data),
+            stdev: calc_stdev(&data),
             num_total: data.len(),
             num_success: data
                 .iter()
@@ -220,8 +223,55 @@ pub fn add_data(
     }
 }
 
-pub fn summary(data: &[WaterData], keypad: &mut GenericKeypad, delay: &mut GenericDelay) {
-    for d in data {
+pub fn summary(
+    data: &[WaterData],
+    keypad: &mut GenericKeypad,
+    delay: &mut GenericDelay,
+    lcd: &mut GenericDisplay,
+) {
+    let stats: [(
+        &str,
+        &dyn Fn(WaterData) -> f64,
+        &dyn Fn(f64) -> QualityLevel,
+        &str,
+    ); 3] = [
+        ("pH", &|f: WaterData| f.ph, &eval_ph, "7.0"),
+        ("Cond", &|f: WaterData| f.cond, &eval_cond, "85.0 mg/L"),
+        (
+            "Hard",
+            &|f: WaterData| f.hardness,
+            &eval_hardness,
+            "90.0 mg/L",
+        ),
+    ];
+
+    for (title, map_fn, eval_fn, standard) in stats {
+        let temp_array = data
+            .iter()
+            .copied()
+            .filter(|d| d.ph != 0.0)
+            .map(map_fn)
+            .collect::<Vec<f64>>();
+
+        let s = Stat::new(temp_array, eval_fn);
+
+        let first_line = format!("{:4} Avg   Stdev", title);
+
+        let mut avg_str = s.avg.to_string();
+        let mut stdev_str = s.stdev.to_string();
+        stdev_str.truncate(4);
+        avg_str.truncate(4);
+
+        let second_line = format!("     {}, {}", avg_str, stdev_str);
+
+        write_screen(first_line.as_str(), second_line.as_str(), lcd, delay);
+
+        read_char(keypad, delay);
+
+        // page 2
+        let first = format!("Std: {}", standard);
+        let second = format!("{}/{} met std", s.num_success, s.num_total);
+        write_screen(first.as_str(), second.as_str(), lcd, delay);
         read_char(keypad, delay);
     }
     // TODO
@@ -318,7 +368,7 @@ pub fn shift_line(first_line: bool, lcd: &mut GenericDisplay, delay: &mut Generi
     lcd.set_cursor_pos(pos, delay).unwrap();
 }
 
-pub fn calc_stdev(data: &[f64]) -> f64 {
+pub fn calc_stdev(data: &Vec<f64>) -> f64 {
     let len = data.len() as f64;
     let mut total = 0.0;
     for &val in data {
@@ -335,7 +385,7 @@ pub fn calc_stdev(data: &[f64]) -> f64 {
     sqrt(variance)
 }
 
-pub fn calc_avg(data: &[f64]) -> f64 {
+pub fn calc_avg(data: &Vec<f64>) -> f64 {
     let len = data.len() as f64;
     let mut total = 0.0;
     for &val in data {
