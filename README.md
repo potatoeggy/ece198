@@ -1,4 +1,4 @@
-# Pillow® Water Quality Sensor
+# Pillow® Water Quality Aggregator
 
 Created for ECE 198 and to learn new things! 
 
